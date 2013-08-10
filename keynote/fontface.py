@@ -232,10 +232,8 @@ def find_cairo_font(name):
         contains the font."""
     if "-" in name:
         name = name[0:name.find("-")]
-    if name not in cache:
-        path = _font_config.find_font(name)
-        cache[name] = _cairo.load(path)
-    return cache[name]
+    path = _font_config.find_font(name)
+    return _cairo.load(path)
 
 if __name__ == "__main__":
     path = _font_config.find_font("Arial")

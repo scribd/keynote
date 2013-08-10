@@ -1,5 +1,4 @@
 #!/usr/bin/python
-
 import os
 import sys
 binary_path = os.path.abspath(os.path.dirname(__file__))
@@ -7,7 +6,6 @@ sys.path.append(os.path.join(binary_path, ".."))
 
 from optparse import OptionParser
 import keynote.utils
-import loghelpers
 from keynote import keynote
 
 def parse_options(*args):
@@ -24,6 +22,7 @@ def parse_options(*args):
     return opts,files[0]
 
 if __name__ == "__main__":
+    keynote.utils.shorten_warnings()
     opts,filename = parse_options()
 
     keynote.set_options(opts)
