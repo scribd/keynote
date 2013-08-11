@@ -2,7 +2,7 @@ import os
 import sys
 import random
 from contextlib import contextmanager
-from tempfile import mkdtemp
+from tempfile import mkdtemp, gettempdir
 import shutil
 import string
 import bisect
@@ -82,7 +82,7 @@ def random_string(length):
 def tempnam():
     """ returns a temporary file name. 
         Warning: named temporary files are insecure on many systems. """
-    return os.path.join(tempfile.gettempdir(), "file"+random_string(8))
+    return os.path.join(gettempdir(), "file"+random_string(8))
 
 @contextmanager
 def tempfile(suffix="tmp"):

@@ -1,18 +1,24 @@
+from lxml.builder import ElementMaker
 from lxml import etree
-from . import utils
+try:
+    from . import utils
+except SystemError:
+    # running as main
+    import utils
 
-SFA = "{http://developer.apple.com/namespaces/sfa}"
-SF = "{http://developer.apple.com/namespaces/sf}"
-XSI = "{http://www.w3.org/2001/XMLSchema-instance}"
-KEY = "{http://developer.apple.com/namespaces/keynote2}"
+SFA = "http://developer.apple.com/namespaces/sfa"
+SF = "http://developer.apple.com/namespaces/sf"
+XSI = "http://www.w3.org/2001/XMLSchema-instance"
+KEY = "http://developer.apple.com/namespaces/keynote2"
 
-NAMESPACE_TO_URL = {
+NSMAP = {
     "sfa": SFA,
     "sf": SF,
     "xsi": XSI,
     "key": KEY,
 }
 
+NAMESPACE_TO_URL = {k:"{"+v+"}" for k,v in NSMAP.items()}
 URL_TO_NAMESPACE = utils.invert_dict(NAMESPACE_TO_URL)
 
 def ns(qname):
@@ -156,4 +162,104 @@ def XML(data):
     root = etree.XML(data)
     Element.fill_registry(root)
     return Element(root)
+
+class XMLBuild:
+    """ XMLBuild allows to create xml trees by attribute access.
+
+        For example:
+
+          xml = XMLBuild()
+          xml.foo(a="1", b="2")
+          xml.foo.bar.TEXT("test")
+
+        results in
+
+          <xml>
+            <foo a="1" b="2">
+              <bar>test</bar>
+            </foo>
+          </xml>
+    """
+    def __init__(self, name=None):
+        self._name = name
+        self._children = []
+        self._attr = {}
+        self._name2child = {}
+        self._text = None
+
+    def __call__(self, *args, **kwargs):
+        self._attr.update(kwargs)
+        return self
+
+    def _ns_name(self, n):
+        """ for "sf_ID", returns "sf:ID" if "sf" is a known namespace """
+        i = n.find("_")
+        if i < 0:
+            return n
+        prefix = n[0:i] 
+        # underscores that don't seperate the namespace are a substitute for '-'
+        suffix = n[i+1:].replace("_", "-")
+        if prefix in NAMESPACE_TO_URL:
+            return NAMESPACE_TO_URL[prefix] + suffix
+        else:
+            return prefix + "-" + suffix
+
+    def _element(self, maker):
+        if self._name is None:
+            return self._children[0]._element(maker)
+        e = etree.Element(self._ns_name(self._name), nsmap=NSMAP)
+        for k,v in self._attr.items():
+            e.set(self._ns_name(k), str(v))
+        for child in self._children:
+            e.append(child._element(maker))
+        if self._text:
+            e.text = self._text
+        return e
+
+    def __str__(self):
+        maker = ElementMaker(NAMESPACE_TO_URL)
+        xml = self._element(maker)
+        return etree.tostring(xml, pretty_print=True, xml_declaration=True, encoding="utf-8").decode("utf8")
+
+    def _append(self, child):
+        if self._name is None and len(self._children) > 0:
+            raise AttributeError("Can only have one root node")
+        self._children.append(child)
+        self._name2child[child._name] = child
+
+    def __getattr__(self, name):
+        if name == "TEXT":
+            def append_text(text):
+                self._text = (self._text or "") + text
+            return append_text
+        if name.startswith("_"):
+            return object.__getattribute__(self, name)
+        dummy = 0x7fffffff
+        cls = self.__class__
+        a = cls.__dict__.get(name, dummy)
+        if a is not dummy:
+            return a
+        a = self.__dict__.get(name, dummy)
+        if a is not dummy:
+            return a
+        # try existing children
+        if name in self._name2child:
+            return self._name2child[name]
+        # create new element below this one
+        e = XMLBuild(name)
+        self._append(e)
+        return e
+
+def new_xml():
+    return XMLBuild()
+
+if __name__ == "__main__":
+    xml = new_xml()
+    p = xml.key_presentation(sfa_ID="Key-0", key_version="92008102400")
+    p.key_size(sfa_w="800", sfa_h="600")
+    print(xml)
+    xml = XMLBuild()
+    xml.foo(a="1", b="2")
+    xml.foo.bar.TEXT("test")
+    print(xml)
 

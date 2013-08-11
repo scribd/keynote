@@ -133,6 +133,8 @@ class PDFDict(PDFType):
     def __init__(self, d):
         self.d = d
     def __getitem__(self, id):
+        if id not in self.d and not id.startswith("/"):
+            return self.d["/"+id]
         return self.d[id]
     def __setitem__(self, key, value):
         self.d[key] = value

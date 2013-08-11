@@ -6,14 +6,15 @@ It came into existence during the 2013 Scribd hackday and was open-sourced later
 
 It supports Apple's keynote format for `.key` files until, at least, Mac OS X Mountain Lion.
 
-Several features, like body placeholders, spiral shapes, certain arrows and some types of bullet
-point lists are not yet supported.
+Several features (like body placeholders, spiral shapes, certain arrows and some types of bullet
+point lists) are not yet supported.
 
 Requirements:
 -------------
+* Python 3
 * pycairo (for PDF generation)
 * numpy
-* scipy (for images)
+* pillow
 * fontconfig, freetype (non Python libraries, imported via ctypes)
 
 Usage:

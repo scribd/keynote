@@ -3,19 +3,12 @@ from contextlib import contextmanager
 import sys
 import logging
 from . import utils
-
-try:
-    import Image
-except ImportError:
-    # python 3 doesn't have this yet
-    Image = None
-
+from PIL import Image
 from .xml import XML, ns
 import cairo
 import os
-from io import StringIO
+from io import StringIO, BytesIO
 import numpy
-from scipy import misc
 from .fontface import find_cairo_font
 
 class Options:
@@ -55,7 +48,7 @@ class Keynote(object):
     def read_file(path):
         Keynote.current.used_filenames.add(path)
         try:
-            fi = Keynote.current.z.open(path.encode("utf8"))
+            fi = Keynote.current.z.open(path)
         except KeyError:
             # try a "shared" file
             try:
@@ -238,22 +231,26 @@ class Bitmap(object):
         return Bitmap(path)
 
     def surface_from_data(self, data):
-        im = Image.open(StringIO(data))
+        im = Image.open(BytesIO(data))
         im.putalpha(256) # create alpha channel
-        arr = numpy.array(im)
-        height, width, channels = arr.shape
 
-        r = arr[:,:,0]
-        g = arr[:,:,1]
-        b = arr[:,:,2]
-        a = arr[:,:,3]
-        arr = numpy.zeros(arr.shape, dtype=arr.dtype)
-        arr[:,:,0] = b
-        arr[:,:,1] = g
-        arr[:,:,2] = r
-        arr[:,:,3] = a
-
-        surface = cairo.ImageSurface.create_for_data(arr, cairo.FORMAT_ARGB32, width, height)
+        try:
+            arr = numpy.array(im)
+            height, width, channels = arr.shape
+            r = arr[:,:,0]
+            g = arr[:,:,1]
+            b = arr[:,:,2]
+            a = arr[:,:,3]
+            arr = numpy.zeros(arr.shape, dtype=arr.dtype)
+            arr[:,:,0] = b
+            arr[:,:,1] = g
+            arr[:,:,2] = r
+            arr[:,:,3] = a
+            surface = cairo.ImageSurface.create_for_data(arr, cairo.FORMAT_ARGB32, width, height)
+        except NotImplementedError: # happens for pycairo 1.10.0
+            with utils.tempfile(".png") as filename:
+                im.save(filename)
+                surface = cairo.ImageSurface.create_from_png(filename)
         return surface
 
     def get_surface(self):
@@ -986,9 +983,12 @@ class Media(object):
         surface = self.bitmap.get_surface()
         if surface is None:
             return None # file not found
-        pattern = cairo.SurfacePattern(surface)
-        pattern.set_matrix(g.get_matrix())
-        device.set_source(pattern)
+
+        #FIXME: this is broken in pycairo 1.10.0
+        #pattern = cairo.SurfacePattern(surface)
+        #pattern.set_matrix(g.get_matrix())
+        #device.set_source(pattern)
+        device.set_source_surface(surface, g.x1, g.y1)
 
         device.move_to(g.x1,g.y1)
         device.line_to(g.x2,g.y1)
@@ -998,6 +998,22 @@ class Media(object):
         device.fill()
 
 class Slide(object):
+    """
+      <key:slide>
+        <key:stylesheet>
+          ...
+        </key:stylesheet>
+        <key:page>
+          ...
+        </key:page>
+        <key:thumbnails>
+          ...
+        </key:thumbnails>
+        <key:notes>
+          ...
+        </key:notes>
+      </key:slide>
+    """
     def __init__(self, xml, nr):
         self.nr = nr
         self.id = xml.get(ns("sfa:ID"))
@@ -1008,7 +1024,7 @@ class Slide(object):
             info("Parsing master slide")
         info(" %s (%s)" % (self.xml.shorttag, self.id))
         self.stylesheet = Stylesheet.find_in_tag(xml)
-        self.parse_drawables()
+        self.parse_page()
         self.master = self.parse_master()
         info(" master slide: %s" % self.master)
 
@@ -1057,16 +1073,17 @@ class Slide(object):
         else:
             warn("Drawable %s not supported yet" % e.shorttag)
 
-    def parse_drawables(self):
+    def parse_page(self):
         """
-            <sf:drawables sfa:ID="NSMutableArray-4779">
-              <sf:shape sfa:ID="BGShapeInfo-159" can-autosize-v="true">
-                 ...
-              </sf:shape>
+            <key:page>
+              <sf:drawables sfa:ID="NSMutableArray-4779">
+                <sf:shape sfa:ID="BGShapeInfo-159" can-autosize-v="true">
+                   ...
+                </sf:shape>
         """
         self.drawables = []
-
         page = self.xml.find(ns("key:page"))
+
         #for drawable in self.xml.iter(ns("sf:drawables")):
         for drawable in page.iter_with_lookup(ns("sf:drawables")):
             for e in drawable:
