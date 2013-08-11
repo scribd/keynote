@@ -16,14 +16,17 @@ def add_geometry(e, w, h):
     e.sf_geometry.sf_naturalSize(sfa_w=0, sfa_h=0)
 
 class KeynoteTest(TestCase):
+    WIDTH = 800
+    HEIGHT = 600
     def setUp(self):
         xml = new_xml()
         p = xml.key_presentation(sfa_ID="Key-0", key_version="92008102400")
-        p.key_size(sfa_w="800", sfa_h="600")
+        p.key_size(sfa_w=self.WIDTH, sfa_h=self.HEIGHT)
         p.top_level_styles
         slides = xml.key_presentation.key_slide_list
         slide = slides.key_slide
         slide.key_stylesheet.sf_slide_style.sf_fill.sf_color(sfa_w="0.0", sfa_a="0.0")
+        slide.key_page.sf_drawables
         
         self.xml = xml
         self.slide = slide # first slide
@@ -37,6 +40,10 @@ class KeynoteTest(TestCase):
         k = Keynote("_test.key")
         k.save("_test.pdf")
         return PDF.load("_test.pdf")
+
+    def test_empty(self):
+        pdf = self.convert()
+        self.assertEqual(list(pdf.pages[0]["MediaBox"]), [0,0,self.WIDTH,self.HEIGHT])
 
     def test_images(self):
         xml = self.xml
