@@ -77,7 +77,6 @@ class Keynote(object):
         return None if (path not in self.filenames) else True
 
     def save(self, output_file):
-        import cairo
         surface = cairo.PDFSurface(output_file, self.index.width, self.index.height)
         context = cairo.Context(surface)
         info("Rendering...")
