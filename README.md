@@ -16,6 +16,7 @@ Requirements:
 * numpy
 * pillow
 * fontconfig, freetype (non Python libraries, imported via ctypes)
+* poppler (for rendering embedded PDFs)
 
 Usage:
 ------
