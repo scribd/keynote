@@ -187,6 +187,76 @@ def check(b, s):
     if not b: 
         error(s)
 
+class Codecs:
+    @staticmethod
+    def ascii85decode(stream):
+        chars = '!"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstu'
+        newstream = ""
+        s = 0
+        count = 0
+        for c in stream:
+            if c in WHITESPACECHARS:
+                continue
+            if c=='z':
+                check(not count, "bad mix of 5-tuples and 'z' in ascii85 stream")
+                newstream += "\0"
+                continue
+            if c=='~': # ~> is the eod marker
+                if count:
+                    # untested
+                    for j in range(count,5):
+                        s*=85
+                    if count==2: stream+="%c" % ((s>>24)&0xff)
+                    elif count==3: stream+="%c%c" % ((s>>24)&0xff,(s>>16)&0xff)
+                    elif count==4: stream+="%c%c%c" % ((s>>24)&0xff,(s>>16)&0xff,(s>>8)&0xff)
+                break
+            check(c in chars, "bad char in ascii85 stream (%c)" % c)
+            s*=85
+            s+=ord(c)-ord('!')
+            count+=1
+            if count==5:
+                newstream += "%c%c%c%c" % ((s>>24)&0xff,(s>>16)&0xff,(s>>8)&0xff,(s>>0)&0xff)
+                s = 0
+                count = 0
+        return stream
+
+    @staticmethod
+    def predict(indata, params):
+        if "/Predictor" not in params:
+            return data
+        p = params["/Predictor"]
+        if p==1:
+            return
+        width = params["/Columns"]
+        check(not len(indata)%(width+1), "data with row size %d not divisible by %d" % (len(indata),width+1))
+        height = len(indata)/(width+1)
+
+        data = []
+        if p in [10,11,12,13,14,15]:
+            prev = [0]*width
+            for pos in range(0,len(indata),(width+1)):
+                p = ord(indata[pos])
+                pos += 1
+                row = [0]*width
+                if p==0:
+                    row = [ord(c) for c in indata[pos:pos+width]]
+                elif p==1:
+                    row[0]=indata[pos]
+                    for i in range(1, width):
+                        row[i] = (row[i-1]+ord(indata[pos+i]))&0xff
+                elif p==2:
+                    for i in range(0, width):
+                        row[i] = (prev[i]+ord(indata[pos+i]))&0xff
+                prev = row
+                data += row
+        else:
+            error("unknown predictor %d" % p)
+        check(len(data) == width*height, "bad data size in predictor output")
+        string = "".join(map(chr,data)) #XXX: not sure how fast this is
+        check(len(string) == width*height, "bad data size in predictor output string")
+        return string
+
+
 class PDFDictObject(PDFDict,PDFObject):
     def __init__(self, file, id, d, stream, encrypted):
         PDFObject.__init__(self, file, id, d)
@@ -208,83 +278,24 @@ class PDFDictObject(PDFDict,PDFObject):
     def get_type(self):
         return self.d.get("/Type","")
 
-    def _predict(self, indata, params):
-        if "/Predictor" not in params:
-            return data
-        p = params["/Predictor"]
-        if p==1:
-            return
-        width = params["/Columns"]
-        check(not len(indata)%(width+1), "data with row size %d not divisible by %d" % (width,width+1))
-        height = len(indata)/(width+1)
-
-        data = []
-        if p in [10,11,12,13,14,15]:
-            prev = [0]*width
-            for pos in range(0,len(indata),(width+1)):
-                p = ord(indata[pos])
-                pos += 1
-                row = [0]*width
-                if p==0:
-                    row = indata[pos:pos+width]
-                elif p==1:
-                    row[0]=indata[pos]
-                    for i in range(1, width):
-                        row[i] = (row[i-1]+ord(indata[pos+i]))&0xff
-                elif p==2:
-                    for i in range(0, width):
-                        row[i] = (prev[i]+ord(indata[pos+i]))&0xff
-                prev = row
-                data += row
-        else:
-            error("unknown predictor %d" % p)
-        check(len(data) == width*height, "bad data size in predictor output")
-        return "".join(map(chr,data)) #XXX: not sure how fast this is
-
     def _decompress(self):
-        filter,self.filters = self.filters[0],self.filters[1:]
+        filter = self.filters[0]
+        print(self.id,id(self), filter)
 
         if filter=="/FlateDecode":
             try:
                 self.stream = str(zlib.decompress(self.stream.encode("latin-1")), "latin-1")
             except zlib.error as e:
-                error("couldn't decompress obj %s: %s" % (str(self.id),str(e)))
-                
+                raise ValueError("couldn't decompress obj %s: %s" % (str(self.id),str(e)))
             if "/DecodeParms" in self.d:
-                self.stream = self._predict(self.stream, self.d["/DecodeParms"])
+                print(len(self.stream), self.d["/DecodeParms"])
+                self.stream = Codecs.predict(self.stream, self.d["/DecodeParms"])
         elif filter=="/ASCII85Decode":
-            chars = '!"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstu'
-            newstream = ""
-            s = 0
-            count = 0
-            for c in self.stream:
-                if c in WHITESPACECHARS:
-                    continue
-                if c=='z':
-                    check(not count, "bad mix of 5-tuples and 'z' in ascii85 stream")
-                    newstream += "\0"
-                    continue
-                if c=='~': # ~> is the eod marker
-                    if count:
-                        # untested
-                        for j in range(count,5):
-                            s*=85
-                        if count==2: stream+="%c" % ((s>>24)&0xff)
-                        elif count==3: stream+="%c%c" % ((s>>24)&0xff,(s>>16)&0xff)
-                        elif count==4: stream+="%c%c%c" % ((s>>24)&0xff,(s>>16)&0xff,(s>>8)&0xff)
-                    break
-                check(c in chars, "bad char in ascii85 stream (%c)" % c)
-                s*=85
-                s+=ord(c)-ord('!')
-                count+=1
-                if count==5:
-                    newstream += "%c%c%c%c" % ((s>>24)&0xff,(s>>16)&0xff,(s>>8)&0xff,(s>>0)&0xff)
-                    s = 0
-                    count = 0
-            self.stream = newstream
+            self.stream = Codecs.ascii85decode(self.stream)
         else:
-            self.filters = [filter] + self.filters
             raise ValueError("can't handle compression mode '%s'" % str(filter))
+
+        del self.filters[0]
 
     def decompress(self):
         if self.encrypted:
@@ -294,7 +305,7 @@ class PDFDictObject(PDFDict,PDFObject):
             try:
                 self._decompress()
             except ValueError:
-                # compress as far as possible
+                # decompress as far as possible
                 return
 
     def __str__(self):
@@ -751,7 +762,7 @@ class RawPDF(object):
     def __init__(self, data=None):
         self.id2object_cache = {}
         self.xref = {}
-        self._next_object_id = 0
+        self._last_object_id = 0
         self.encrypt = None
         self.version = (1,4)
 
@@ -797,8 +808,8 @@ class RawPDF(object):
             self.error(s)
 
     def next_id(self):
-        self._next_object_id += 1
-        return self._next_object_id
+        self._last_object_id += 1
+        return self._last_object_id
 
     def create_object(self, type=None, subtype=None, constructor=PDFDictObject):
         id = ID(self.next_id(),0)
@@ -964,7 +975,7 @@ class RawPDF(object):
             gen = int(match.group(2))
             id = ID(obj_id,gen)
             self.xref[id] = pos
-            self._next_object_id = max(self._next_object_id, id.id)
+            self._last_object_id = max(self._last_object_id, id.id)
 
         for match in TRAILER.finditer(self.bytes):
             pos = match.start()+7
@@ -1018,7 +1029,7 @@ class RawPDF(object):
                     # we read backwards, so ids read first overload ids read later
                     if id not in self.xref:
                         self.xref[id] = offset+self.offset
-                        self._next_object_id = max(self._next_object_id, id.id)
+                        self._last_object_id = max(self._last_object_id, id.id)
         return trailer+7
 
     def parse_new_xref(self,pos):
@@ -1057,7 +1068,7 @@ class RawPDF(object):
 
                 if id and id not in self.xref:
                     self.xref[id] = offset
-                    self._next_object_id = max(self._next_object_id, id.id)
+                    self._last_object_id = max(self._last_object_id, id.id)
         return obj.d
 
     def verify_xref(self):
@@ -1120,7 +1131,7 @@ class RawPDF(object):
     def make_trailer_dict(self, previous=None):
         d = PDFDict({})
         d["/Root"] = self.root.id
-        d["/Size"] = self._next_object_id
+        d["/Size"] = self._last_object_id
         if previous is not None:
             d["/Prev"] = previous
         if self.encrypt:
@@ -1138,7 +1149,7 @@ class RawPDF(object):
         w("%%PDF-%d.%d\n" % self.version)
         w("%\xea\x7e\n")
         xref = "xref\n"
-        s,end = 0,self._next_object_id
+        s,end = 0,self._last_object_id+1
         while s<end:
             size = s
             next = s
@@ -1151,22 +1162,23 @@ class RawPDF(object):
             else:
                 next = size
 
-            xref += "%d %d\n" % (s,size-s)
-            for nr in range(s,size):
-                id = ID(nr,0) 
-                exists = 0
-                if id in self.xref:
-                    obj = self.get_object(id)
-                    if obj.get_type() not in ["/XRef","/ObjStm"]:
-                        pos = fi.tell()
-                        w(obj.obj())
-                        xref += "%010d %05d n \n" % (pos,obj.id.gen)
-                        exists = 1
-                if not exists:
-                    if nr==0:
-                        xref += "0000000000 65535 f \n"
-                    else:
-                        xref += "0000000000 65536 n \n"
+            if s!=size:
+                xref += "%d %d\n" % (s,size-s)
+                for nr in range(s,size):
+                    id = ID(nr,0) 
+                    exists = 0
+                    if id in self.xref:
+                        obj = self.get_object(id)
+                        if obj.get_type() not in ["/XRef","/ObjStm"]:
+                            pos = fi.tell()
+                            w(obj.obj())
+                            xref += "%010d %05d n \n" % (pos,obj.id.gen)
+                            exists = 1
+                    if not exists:
+                        if nr==0:
+                            xref += "0000000000 65535 f \n"
+                        else:
+                            xref += "0000000000 65536 n \n"
             s = next
 
         xref_pos = fi.tell()
