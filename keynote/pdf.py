@@ -280,7 +280,6 @@ class PDFDictObject(PDFDict,PDFObject):
 
     def _decompress(self):
         filter = self.filters[0]
-        print(self.id,id(self), filter)
 
         if filter=="/FlateDecode":
             try:
@@ -288,7 +287,6 @@ class PDFDictObject(PDFDict,PDFObject):
             except zlib.error as e:
                 raise ValueError("couldn't decompress obj %s: %s" % (str(self.id),str(e)))
             if "/DecodeParms" in self.d:
-                print(len(self.stream), self.d["/DecodeParms"])
                 self.stream = Codecs.predict(self.stream, self.d["/DecodeParms"])
         elif filter=="/ASCII85Decode":
             self.stream = Codecs.ascii85decode(self.stream)
